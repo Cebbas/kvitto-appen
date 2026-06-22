@@ -86,3 +86,21 @@ Under fliken **Månadsrapport** kan du:
 ---
 
 *All data lagras lokalt på din Mac. Inget skickas till externa servrar.*
+
+---
+
+## Uppdateringar
+
+Appen kollar automatiskt mot GitHub vid start om det finns en nyare version (jämför `VERSION`-filen mot senaste [release](https://github.com/Cebbas/kvitto-appen/releases)). Finns en uppdatering visas en länk i sidopanelen.
+
+### Släppa en ny version (för utvecklare)
+
+1. Höj versionsnumret i `VERSION` (t.ex. `1.1.0`)
+2. Committa och pusha till `main`
+3. Tagga och skapa release:
+   ```bash
+   git tag v1.1.0
+   git push origin v1.1.0
+   gh release create v1.1.0 --title "v1.1.0" --notes "Vad som är nytt…"
+   ```
+4. Användare med en äldre version ser uppdateringen i appen nästa gång de startar den.

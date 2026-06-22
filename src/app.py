@@ -3,6 +3,7 @@ import customtkinter as ctk
 import threading
 import json
 import os
+import webbrowser
 from datetime import datetime
 from PIL import Image, ImageTk
 from .gmail_client import GmailClient
@@ -13,6 +14,7 @@ from .storage import Storage
 from .pdf_exporter import PDFExporter
 from .monthly_report import MonthlyReportExporter
 from .missing_checker import MissingChecker
+from .update_checker import check_for_update
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -56,6 +58,20 @@ class KvittoApp:
         self._scanning       = False
 
         self._build_ui()
+        self._check_for_updates()
+
+    def _check_for_updates(self):
+        def worker():
+            available, latest, url = check_for_update()
+            if available:
+                self.root.after(0, lambda: self._show_update_banner(latest, url))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_update_banner(self, latest_version, url):
+        self.update_label.configure(
+            text=f"⬆️  Uppdatering v{latest_version} tillgänglig", text_color=COLORS["accent2"])
+        self.update_label.bind("<Button-1>", lambda e: webbrowser.open(url))
+        self.update_label.pack(pady=(0, 10))
 
     # ══════════════════════════════════════════════════════════════
     #  UI SETUP
@@ -128,6 +144,10 @@ class KvittoApp:
             self.sidebar, text="Klar", font=("SF Pro Display", 11),
             text_color=COLORS["muted"])
         self.status_label.pack(pady=6)
+
+        self.update_label = ctk.CTkLabel(
+            self.sidebar, text="", font=("SF Pro Display", 11, "bold"),
+            cursor="hand2")
 
         # ── Main ────────────────────────────────────────────────
         self.main_frame = ctk.CTkFrame(self.root, fg_color=COLORS["bg"], corner_radius=0)
