@@ -28,6 +28,22 @@ source venv/bin/activate
 pip install --quiet --upgrade pip
 pip install --quiet -r requirements.txt
 
+echo "  →  Sätter ikon på genvägarna…"
+DIR="$(pwd)"
+venv/bin/python - "$DIR/assets/icon.png" "$DIR/Installera.command" "$DIR/Starta.command" <<'PYEOF' 2>/dev/null || true
+import sys
+try:
+    from AppKit import NSWorkspace, NSImage
+    icon_path, *targets = sys.argv[1:]
+    icon = NSImage.alloc().initWithContentsOfFile_(icon_path)
+    if icon:
+        ws = NSWorkspace.sharedWorkspace()
+        for target in targets:
+            ws.setIcon_forFile_options_(icon, target, 0)
+except Exception:
+    pass
+PYEOF
+
 echo ""
 echo "  ✓  Installation klar!"
 echo ""

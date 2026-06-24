@@ -45,19 +45,24 @@ class OutlookClient:
     def get_email(self) -> str:
         return self._email or self.storage.get_account("outlook").get("email", "")
 
-    def connect(self) -> str:
+    def has_credentials(self) -> bool:
+        return self._load_config().get("client_id") != "DIN_AZURE_CLIENT_ID"
+
+    def connect(self, client_id: str = None) -> str:
         if not MSAL_AVAILABLE:
             raise RuntimeError(
                 "MSAL saknas. Kör: pip install msal"
             )
 
-        config = self._load_config()
-        if config.get("client_id") == "DIN_AZURE_CLIENT_ID":
-            raise RuntimeError(
-                f"Fyll i ditt Azure App-ID i:\n{CONFIG_PATH}\n\n"
-                "Skapa en app på portal.azure.com → App registrations, "
-                "lägg till Microsoft Graph Mail.Read, välj 'Public client' under Authentication."
-            )
+        if client_id:
+            config = {"client_id": client_id.strip(), "tenant_id": "consumers"}
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(config, f, indent=2)
+        else:
+            config = self._load_config()
+            if config.get("client_id") == "DIN_AZURE_CLIENT_ID":
+                raise RuntimeError("Fyll i ditt Azure Application (client) ID.")
 
         cache = msal.SerializableTokenCache()
         if os.path.exists(TOKEN_CACHE_PATH):
@@ -178,8 +183,11 @@ class OutlookClient:
         sender_str = f"{sender.get('name', '')} <{sender.get('address', '')}>".strip()
         body_text = msg.get("body", {}).get("content", "")
         # Strippa HTML
-        import re
+        import re, base64, html
+        body_text = re.sub(r"<(script|style)[^>]*>.*?</(script|style)>", "", body_text,
+                            flags=re.DOTALL | re.IGNORECASE)
         body_text = re.sub(r"<[^>]+>", " ", body_text)
+        body_text = html.unescape(body_text)
         body_text = re.sub(r"\s+", " ", body_text).strip()
 
         attachments = []
@@ -187,13 +195,21 @@ class OutlookClient:
             att_resp = requests.get(
                 f"{GRAPH_ENDPOINT}/me/messages/{msg['id']}/attachments",
                 headers={"Authorization": f"Bearer {self._token}"},
-                params={"$select": "name,contentType,size"}
+                params={"$select": "name,contentType,contentBytes,@odata.type"}
             )
             if att_resp.status_code == 200:
                 for att in att_resp.json().get("value", []):
+                    data = None
+                    content_bytes = att.get("contentBytes")
+                    if content_bytes:
+                        try:
+                            data = base64.b64decode(content_bytes)
+                        except Exception:
+                            pass
                     attachments.append({
                         "name":     att.get("name", ""),
                         "mimeType": att.get("contentType", ""),
+                        "data":     data,
                     })
 
         return {

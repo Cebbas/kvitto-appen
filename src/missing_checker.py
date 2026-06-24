@@ -20,12 +20,30 @@ class MissingChecker:
             if self._matches((r.get("sender") or "").lower(), match_keys)
         ]
 
-    def check_month(self, month: str) -> list:
+    def filter_expected(self, receipts: list) -> tuple:
         """
-        Returnerar lista med avsändare som är 'kända' men saknar
-        kvitto under given månad (format: '2024-03').
+        Delar upp en lista kvitton i (förväntade, ej förväntade) baserat på
+        vilka avsändare som är markerade 'förväntade varje månad'.
         """
-        known = self.storage.get_known_senders()
+        expected = self.storage.get_expected_monthly_senders()
+        match_key_lists = [self.storage.get_sender_match_keys(e) for e in expected]
+
+        included, other = [], []
+        for r in receipts:
+            sender_lower = (r.get("sender") or "").lower()
+            if any(self._matches(sender_lower, mks) for mks in match_key_lists):
+                included.append(r)
+            else:
+                other.append(r)
+        return included, other
+
+    def check_month(self, month: str, senders: list = None) -> list:
+        """
+        Returnerar lista med avsändare som saknar kvitto under given
+        månad (format: '2024-03'). Kollar 'senders' om angiven, annars
+        alla kända avsändare.
+        """
+        known = senders if senders is not None else self.storage.get_known_senders()
         if not known:
             return []
 
@@ -68,6 +86,20 @@ class MissingChecker:
             "missing": missing,
             "month":   month,
         }
+
+    def days_since_last_seen(self, sender_key: str):
+        """Antal dagar sedan senaste kvittot från avsändaren, eller None om inget finns."""
+        dates = []
+        for r in self._receipts_for(sender_key):
+            d = (r.get("date") or "")[:10]
+            if d:
+                try:
+                    dates.append(datetime.strptime(d, "%Y-%m-%d"))
+                except ValueError:
+                    continue
+        if not dates:
+            return None
+        return (datetime.now() - max(dates)).days
 
     def get_sender_cadence(self, sender_key: str) -> dict:
         """

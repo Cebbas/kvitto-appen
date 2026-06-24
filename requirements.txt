@@ -1,13 +1,16 @@
-customtkinter>=5.2.0
-Pillow>=10.0.0
-google-auth>=2.23.0
-google-auth-oauthlib>=1.1.0
-google-auth-httplib2>=0.1.1
-google-api-python-client>=2.100.0
-msal>=1.24.0
-requests>=2.31.0
-pypdf2>=3.0.0
-pdf2image>=1.16.3
-python-dateutil>=2.8.2
-reportlab>=4.0.4
-pyobjc-framework-Cocoa>=10.0
+customtkinter==5.2.2
+darkdetect==0.8.0
+pillow==12.2.0
+PyPDF2==3.0.1
+reportlab==4.5.1
+pdf2image==1.17.0
+requests==2.34.2
+
+# Gmail
+google-api-python-client==2.197.0
+google-auth==2.55.0
+google-auth-httplib2==0.4.0
+google-auth-oauthlib==1.4.0
+
+# Outlook
+msal==1.37.0

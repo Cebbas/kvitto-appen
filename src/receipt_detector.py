@@ -60,6 +60,8 @@ class ReceiptDetector:
                 self.storage.increment_sender_count(sender)
                 return True
 
+        keywords = RECEIPT_KEYWORDS_SV + self.storage.get_custom_keywords()
+
         # Poängsättning baserat på ämnesrad
         for pattern in RECEIPT_SUBJECT_PATTERNS:
             if re.search(pattern, subject, re.IGNORECASE):
@@ -67,12 +69,12 @@ class ReceiptDetector:
                 break
 
         # Nyckelord i ämne
-        for kw in RECEIPT_KEYWORDS_SV:
+        for kw in keywords:
             if kw in subject:
                 score += 2
 
         # Nyckelord i brödtext
-        keyword_hits = sum(1 for kw in RECEIPT_KEYWORDS_SV if kw in body)
+        keyword_hits = sum(1 for kw in keywords if kw in body)
         score += min(keyword_hits, 4)
 
         # Avsändardomän
@@ -118,7 +120,8 @@ class ReceiptDetector:
         breakdown["subject_pattern"] = any(
             re.search(p, subject, re.IGNORECASE) for p in RECEIPT_SUBJECT_PATTERNS
         )
-        breakdown["keyword_hits"] = sum(1 for kw in RECEIPT_KEYWORDS_SV if kw in body)
+        keywords = RECEIPT_KEYWORDS_SV + self.storage.get_custom_keywords()
+        breakdown["keyword_hits"] = sum(1 for kw in keywords if kw in body)
         breakdown["sender_domain"] = any(ind in sender for ind in KNOWN_RECEIPT_DOMAINS)
         breakdown["has_pdf"] = any(
             a.get("name", "").endswith(".pdf") for a in email.get("attachments", [])

@@ -19,12 +19,14 @@ class Storage:
 
         self._deleted_path  = os.path.join(DATA_DIR, "deleted_receipts.json")
         self._profiles_path = os.path.join(DATA_DIR, "sender_profiles.json")
+        self._keywords_path = os.path.join(DATA_DIR, "custom_keywords.json")
         self._receipts  = self._load(self._receipts_path, [])
         self._deleted   = self._load(self._deleted_path, [])
         self._senders   = self._load(self._senders_path, {})   # sender -> count
         self._activity  = self._load(self._activity_path, [])
         self._accounts  = self._load(self._accounts_path, {})
         self._profiles  = self._load(self._profiles_path, {})  # sender_key -> {display_name, aliases}
+        self._keywords  = self._load(self._keywords_path, [])  # egna sökord för kvittoigenkänning
 
     # ── Receipts ─────────────────────────────────────────────────
 
@@ -57,6 +59,14 @@ class Storage:
         receipt["attachments"] = saved_atts
 
         self._receipts.append(receipt)
+        self._save(self._receipts_path, self._receipts)
+
+    def set_manual_include(self, message_id: str, include: bool):
+        """Inkluderar/exkluderar ett enskilt kvitto i rapporten, oavsett avsändarens status."""
+        for r in self._receipts:
+            if r.get("message_id") == message_id:
+                r["manual_include"] = include
+                break
         self._save(self._receipts_path, self._receipts)
 
     def delete_receipt(self, message_id: str):
@@ -104,14 +114,26 @@ class Storage:
     def get_sender_profile(self, sender: str) -> dict:
         p = self._profiles.get(self._pkey(sender), {})
         return {
-            "display_name": p.get("display_name") or sender,
-            "aliases":      p.get("aliases", []),
+            "display_name":     p.get("display_name") or sender,
+            "aliases":          p.get("aliases", []),
+            "expected_monthly": p.get("expected_monthly", False),
         }
 
     def set_sender_display_name(self, sender: str, name: str):
         k = self._pkey(sender)
         self._profiles.setdefault(k, {})["display_name"] = name.strip()
         self._save(self._profiles_path, self._profiles)
+
+    def set_expected_monthly(self, sender: str, expected: bool):
+        k = self._pkey(sender)
+        self._profiles.setdefault(k, {})["expected_monthly"] = expected
+        self._save(self._profiles_path, self._profiles)
+
+    def get_expected_monthly_senders(self) -> list:
+        return [
+            s for s in self.get_known_senders()
+            if self._profiles.get(self._pkey(s), {}).get("expected_monthly")
+        ]
 
     def merge_sender(self, primary: str, alias: str):
         """Slår ihop 'alias' in i 'primary'. Alias tas bort från kända avsändare."""
@@ -168,17 +190,50 @@ class Storage:
 
     # ── Stats ────────────────────────────────────────────────────
 
-    def get_stats(self) -> dict:
+    def get_stats(self, year: str = None) -> dict:
         now = datetime.now()
         this_month = sum(
             1 for r in self._receipts
             if r.get("date", "")[:7] == now.strftime("%Y-%m")
         )
+
+        receipts = self._receipts
+        if year:
+            receipts = [r for r in receipts if r.get("date", "")[:4] == year]
+
+        by_month = {}
+        by_source = {}
+        senders = set()
+        for r in receipts:
+            month = r.get("date", "")[:7]
+            if month:
+                by_month[month] = by_month.get(month, 0) + 1
+            by_source[r.get("source", "okänd")] = by_source.get(r.get("source", "okänd"), 0) + 1
+            if r.get("sender"):
+                senders.add(r["sender"])
+
+        by_year = {}
+        for r in self._receipts:
+            y = r.get("date", "")[:4]
+            if y:
+                by_year[y] = by_year.get(y, 0) + 1
+
+        active_months = len(by_month)
+        avg_per_month = round(len(receipts) / active_months, 1) if active_months else 0
+
         return {
-            "total":         len(self._receipts),
+            "total":         len(receipts),
             "this_month":    this_month,
-            "known_senders": len(self._senders),
+            "known_senders": len(self._senders) if not year else len(senders),
+            "by_month":      by_month,
+            "by_source":     by_source,
+            "by_year":       by_year,
+            "avg_per_month": avg_per_month,
         }
+
+    def get_available_years(self) -> list:
+        years = {r.get("date", "")[:4] for r in self._receipts if r.get("date")}
+        return sorted(years, reverse=True)
 
     # ── Accounts ─────────────────────────────────────────────────
 
@@ -192,6 +247,47 @@ class Storage:
     def remove_account(self, provider: str):
         self._accounts.pop(provider, None)
         self._save(self._accounts_path, self._accounts)
+
+    def update_settings(self, values: dict):
+        """Slår ihop nya nycklar i 'settings'-kontot utan att tappa befintliga."""
+        settings = dict(self._accounts.get("settings", {}))
+        settings.update(values)
+        self.save_account("settings", settings)
+
+    def save_company_logo(self, source_path: str) -> str:
+        """Kopierar in vald logga i appens datakatalog och sparar sökvägen i inställningarna."""
+        import shutil
+        ext = os.path.splitext(source_path)[1].lower() or ".png"
+        dest_path = os.path.join(DATA_DIR, f"company_logo{ext}")
+        for old_ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp"):
+            old_path = os.path.join(DATA_DIR, f"company_logo{old_ext}")
+            if os.path.exists(old_path) and old_path != dest_path:
+                os.remove(old_path)
+        shutil.copyfile(source_path, dest_path)
+        self.update_settings({"logo_path": dest_path})
+        return dest_path
+
+    def remove_company_logo(self):
+        logo_path = self.get_account("settings").get("logo_path")
+        if logo_path and os.path.exists(logo_path):
+            os.remove(logo_path)
+        self.update_settings({"logo_path": ""})
+
+    # ── Anpassade sökord ────────────────────────────────────────
+
+    def get_custom_keywords(self) -> list:
+        return list(self._keywords)
+
+    def add_custom_keyword(self, keyword: str):
+        kw = (keyword or "").strip().lower()
+        if kw and kw not in self._keywords:
+            self._keywords.append(kw)
+            self._save(self._keywords_path, self._keywords)
+
+    def remove_custom_keyword(self, keyword: str):
+        kw = (keyword or "").strip().lower()
+        self._keywords = [k for k in self._keywords if k != kw]
+        self._save(self._keywords_path, self._keywords)
 
     # ── Helpers ──────────────────────────────────────────────────
 
